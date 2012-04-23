@@ -121,6 +121,9 @@
   "Show visual feedback in whole buffer. If nil, show only in visible area."
   :group 'pyregexp)
 
+(defconst pyregexp-filename (expand-file-name "pyregexp.py" (file-name-directory load-file-name))
+  "Path to pyregexp.py")
+
 (defcustom pyregexp-command-prefix (format "python2 %s" pyregexp-filename)
   "Command used to genereate highlighting information."
   :group 'pyregexp)
@@ -132,9 +135,6 @@
 
 (defconst pyregexp-group-faces '(pyregexp-group-0 pyregexp-group-1 pyregexp-group-2)
   "Faces in list for convenience")
-
-(defconst pyregexp-filename (expand-file-name "pyregexp.py" (file-name-directory load-file-name))
-  "Path to pyregexp.py")
 
 (defconst pyregexp-in-minibuffer nil
   "Is pyregexp currently being used?")
