@@ -217,7 +217,7 @@
       (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	     (pyregexp-regexp-feedback))
 	    ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	     (pyregexp-do-replace t)
+	     (pyregexp-do-replace-feedback)
 	     )))))
 
 (add-hook 'post-command-hook 'pyregexp-update)
@@ -250,8 +250,8 @@ Return t if current line is not the line with the message."
 (defun pyregexp-current-line ()
   (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
 
-(defun pyregexp-parse (s callback &optional msg)
-  "Parse string s with positions of matches adn groups as returned by external script. For each position, callback is called with arguments (i j begin end),
+(defun pyregexp-parse-matches (s callback &optional msg)
+  "Parse string s with positions of matches and groups as returned by external script. For each position, callback is called with arguments (i j begin end),
 i being the match and j the group index and begin/end being the span of the match.
 "
   (let (message-line) ;; store message line (last non-empty line of output)
@@ -271,6 +271,27 @@ i being the match and j the group index and begin/end being the span of the matc
     (when msg
       (unless (string= "" message-line) (funcall msg message-line)))))
 
+(defun pyregexp-parse-replace (s)
+  "Parse string s with positions of matches and replacements as returned by external script.
+Returns a list of (replacement begin end i) (i = index of match = index of corresponding overlay)
+and the message line."
+  (let ((replacements (list)) ;; store replacements (lines of output) in list
+	message-line) ;; store message line (last non-empty line of output)
+    (with-temp-buffer
+      (insert s)
+      (goto-char (point-min))
+      (loop while (and (pyregexp-not-last-line) (/= (line-beginning-position) (line-end-position))) ;; loop until empty line is reached
+	    for i from 0 do 
+	    (re-search-forward "\\([0-9]+\\) \\([0-9]+\\) " (line-end-position) t)
+	    (let ((replacement (buffer-substring-no-properties (point) (line-end-position)))
+		  (begin (+ pyregexp-target-buffer-start (string-to-number (match-string 1))))
+		  (end (+ pyregexp-target-buffer-start (string-to-number (match-string 2)))))
+	      (setq replacements (cons (list replacement begin end i) replacements)))
+	    (forward-line 1))
+      (setq message-line (pyregexp-unescape (pyregexp-current-line) t)))
+    (list replacements message-line)))
+
+
 (defun pyregexp-run-command (args success)
   (multiple-value-bind (output exit-code) (pyregexp-command args)
     (cond ((equal exit-code 0) 
@@ -279,12 +300,13 @@ i being the match and j the group index and begin/end being the span of the matc
 	   (message "script failed:%s\n" output)))))
 
 (defun pyregexp-regexp-feedback ()
+  "Show visual feedback for matches."
   (pyregexp-delete-overlays)
   (when (minibuffer-contents)
     (pyregexp-run-command 
      (format "%s matches %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents)))
      '(lambda (output)
-	(pyregexp-parse 
+	(pyregexp-parse-matches
 	 output 
 	 '(lambda (i j begin end) 
 	    (when (<= end pyregexp-target-buffer-end-feedback)
@@ -303,53 +325,48 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-format-replace-feedback (original replacement)
   (format "%s => %s" original replacement))
 
-(defun pyregexp-do-replace (&optional feedback)
-  "If feedback is not nil, visual feedback for matches will be given. Otherwise, matches will be replaced."
-  (if feedback (pyregexp-delete-overlay-displays)
-    (progn 
-      (pyregexp-delete-overlay-displays)
-      (pyregexp-delete-overlays)))
-  (let ((replace-string (if feedback (minibuffer-contents) pyregexp-replace-string)))
+(defun pyregexp-do-replace-feedback ()
+  "Show visual feedback for replacements."
+  (pyregexp-delete-overlay-displays)
+  (let ((replace-string (minibuffer-contents)))
     (pyregexp-run-command 
-     (format "%s replace %s %s %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (if feedback "--feedback" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     (format "%s replace %s --feedback %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
      '(lambda (output)
-	(let ((replacements (list)) ;; store replacements (lines of output) in list
-	      (message-line)) ;; store message line (last non-empty line of output)
-	  (with-temp-buffer
-	    (insert output)
-	    (goto-char (point-min))
-	    (while (and (pyregexp-not-last-line) (/= (line-beginning-position) (line-end-position))) ;; loop until empty line is reached
-	      (re-search-forward "\\([0-9]+\\) \\([0-9]+\\) " (line-end-position) t)
-	      (let ((replacement (buffer-substring-no-properties (point) (line-end-position)))
-		    (begin (+ pyregexp-target-buffer-start (string-to-number (match-string 1))))
-		    (end (+ pyregexp-target-buffer-start (string-to-number (match-string 2)))))
-		(setq replacements (cons (list replacement begin end) replacements)))
-	      (forward-line 1))
-	    (setq message-line (pyregexp-unescape (pyregexp-current-line) t))
-	    (if feedback
-		;; visual feedback for matches
-		(loop for i from 0 for replacement-info in (nreverse replacements) do 
-		      (multiple-value-bind (replacement begin end) replacement-info
-			(when (<= end pyregexp-target-buffer-end-feedback)
-			  (let* ((overlay (pyregexp-get-overlay i 0))
-				 (empty-match (equal (overlay-start overlay) (overlay-end overlay))))
-			    (unless empty-match
-			      (let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
-				(overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
-				(overlay-put overlay 'priority 2)
-				;; (run-at-time "1 sec" nil (lambda (overlay) (overlay-put overlay 'display nil)) overlay)
-				))))))
-	      (loop for replacement-info in replacements do 
-		    (multiple-value-bind (replacement begin end) replacement-info
-		      ;; replace match
-		      (let ((replacement (pyregexp-unescape replacement t)))
-			(with-current-buffer pyregexp-target-buffer
-			  (save-excursion
-			    (kill-region begin end)
-			    (goto-char begin)
-			    (insert replacement))))))))
+	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
+	  ;; visual feedback for matches
+	  (loop for replacement-info in replacements do 
+		(multiple-value-bind (replacement begin end i) replacement-info
+		  (when (<= end pyregexp-target-buffer-end-feedback)
+		    (let* ((overlay (pyregexp-get-overlay i 0))
+			   (empty-match (equal (overlay-start overlay) (overlay-end overlay))))
+		      (unless empty-match
+			(let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
+			  (overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
+			  (overlay-put overlay 'priority 2)))))))
 	  (unless (string= "" message-line)
 	    (minibuffer-message message-line)))))))
+
+(defun pyregexp-do-replace ()
+  "Replace matches."
+  (pyregexp-delete-overlay-displays)
+  (pyregexp-delete-overlays)
+  (let ((replace-string pyregexp-replace-string))
+    (pyregexp-run-command 
+     (format "%s replace %s %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     '(lambda (output)
+	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
+	  ;; replace in target buffer
+	  (loop for replacement-info in replacements do 
+		(multiple-value-bind (replacement begin end i) replacement-info
+		  ;; replace match
+		  (let ((replacement (pyregexp-unescape replacement t)))
+		    (with-current-buffer pyregexp-target-buffer
+		      (save-excursion
+			(kill-region begin end)
+			(goto-char begin)
+			(insert replacement)))))))
+	(unless (string= "" message-line)
+	  (minibuffer-message message-line))))))
 
 (defun pyregexp-replace (regexp replace start end &optional use-expression)
   "Regexp-replace with interactive feedback, using Python regular expressions. 
