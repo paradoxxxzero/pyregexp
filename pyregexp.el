@@ -124,8 +124,8 @@
 (defconst pyregexp-filename (expand-file-name "pyregexp.py" (file-name-directory load-file-name))
   "Path to pyregexp.py")
 
-(defcustom pyregexp-command-prefix (format "python2 %s" pyregexp-filename)
-  "Command used to genereate highlighting information."
+(defcustom pyregexp-command-prefix (format "python %s" pyregexp-filename)
+  "External script to compute the replacements."
   :group 'pyregexp)
 
 ;; private variables below
