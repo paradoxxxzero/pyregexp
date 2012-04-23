@@ -273,7 +273,7 @@ i being the match and j the group index and begin/end being the span of the matc
 
 (defun pyregexp-parse-replace (s)
   "Parse string s with positions of matches and replacements as returned by external script.
-Returns a list of (replacement begin end i) (i = index of match = index of corresponding overlay)
+Returns a list, in reverse order, of (replacement begin end i) (i = index of match = index of corresponding overlay)
 and the message line."
   (let ((replacements (list)) ;; store replacements (lines of output) in list
 	message-line) ;; store message line (last non-empty line of output)
@@ -290,7 +290,6 @@ and the message line."
 	    (forward-line 1))
       (setq message-line (pyregexp-unescape (pyregexp-current-line) t)))
     (list replacements message-line)))
-
 
 (defun pyregexp-run-command (args success)
   (multiple-value-bind (output exit-code) (pyregexp-command args)
@@ -368,6 +367,37 @@ Escaped newlines are only unescaped if newline is not nil."
 	(unless (string= "" message-line)
 	  (minibuffer-message message-line))))))
 
+(defun pyregexp-interactive-get-args ()
+  (unwind-protect 
+      (progn
+	(setq pyregexp-target-buffer (current-buffer))
+	(setq pyregexp-use-expression current-prefix-arg)
+	(setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
+					       (region-beginning)
+					     (point)))
+	(setq pyregexp-target-buffer-end (if (and transient-mark-mode mark-active) 
+					     (region-end)
+					   (point-max)))
+	(setq pyregexp-target-buffer-end-feedback (if (and 
+						       pyregexp-show-feedback-whole-buffer
+						       (<=  (window-end nil t) pyregexp-target-buffer-end))
+						      (window-end nil t)
+						    end))
+
+	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	(setq pyregexp-last-minibuffer-contents "")
+	(setq pyregexp-regexp-string (read-from-minibuffer "Regexp? " ""))
+	
+	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	(setq pyregexp-last-minibuffer-contents "")
+	(setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") ""))
+	
+	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
+    (progn ;; execute on finish
+      (setq pyregexp-in-minibuffer nil)
+      (pyregexp-delete-overlay-displays)
+      (pyregexp-delete-overlays))))
+
 (defun pyregexp-replace (regexp replace start end &optional use-expression)
   "Regexp-replace with interactive feedback, using Python regular expressions. 
 When used interactively with prefix arg, the replacement string is a Python expression. The Python expression has access to the following variables:
@@ -388,36 +418,7 @@ regexp: \\w+
 replace: \"\\n{}. {}\".format(i+1, \\0)
 "
   (interactive 
-   (unwind-protect 
-       (progn
-	 (setq pyregexp-target-buffer (current-buffer))
-	 (setq pyregexp-use-expression current-prefix-arg)
-	 (setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
-						(region-beginning)
-					      (point)))
-	 (setq pyregexp-target-buffer-end (if (and transient-mark-mode mark-active) 
-					      (region-end)
-					    (point-max)))
-	 (setq pyregexp-target-buffer-end-feedback (if (and 
-							pyregexp-show-feedback-whole-buffer
-							(<=  (window-end nil t) pyregexp-target-buffer-end))
-						       (window-end nil t)
-						     end))
-
-	 (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	 (setq pyregexp-last-minibuffer-contents "")
-	 (setq pyregexp-regexp-string (read-from-minibuffer "Regexp? " ""))
-	 
-	 (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	 (setq pyregexp-last-minibuffer-contents "")
-	 (setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") ""))
-	 
-	 (list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
-     (progn ;; execute on finish
-       (setq pyregexp-in-minibuffer nil)
-       (pyregexp-delete-overlay-displays)
-       (pyregexp-delete-overlays))))
-
+   (pyregexp-interactive-get-args))
   (unwind-protect 
       (progn 
 	(setq pyregexp-target-buffer (current-buffer))
