@@ -23,6 +23,25 @@
 import sys, re
 argv = sys.argv
 
+# not using argparse because it is not in the stdlib of python2.7/3.1.
+BOOL_ARGS = ('--eval', '--feedback', )
+STR_ARGS = ('--regexp', '--replace', )
+INT_ARGS = ('--feedback-limit', )
+def parse_arg(arg, required=True):
+    if not required and arg not in sys.argv:
+        return None
+    if arg in BOOL_ARGS:
+        return arg in sys.argv
+    def lookahead():
+        try:
+            return sys.argv[sys.argv.index(arg)+1]
+        except ValueError:
+            raise Exception("Argument missing: {0}".format(arg))
+    if arg in STR_ARGS:
+        return lookahead()
+    if arg in INT_ARGS:
+        return int(lookahead())
+    raise Exception("Unrecognized argument: {0}".format(arg))
 # True if we are running on Python 3.
 PY3 = sys.version_info[0] == 3
 
@@ -36,31 +55,33 @@ def message(msg):
 if argv[1] == 'matches':
     # output positions of matches
 
-    regex = argv[2]
+    regexp = parse_arg('--regexp')
     region = sys.stdin.read()
-
+    feedback_limit = parse_arg('--feedback-limit', required=False)
     try:
-        c = 0
-        for match in re.finditer(regex, region):
-            c += 1
+        matches = list(re.finditer(regexp, region))
+        for i, match in enumerate(matches):
+            if feedback_limit is not None and i >= feedback_limit:
+                break
             # show only if match length is nonzero
             if match.start() != match.end(): 
                 sys.stdout.write(' '.join("%s %s" % span for span in match.regs))
                 sys.stdout.write('\n')
-        if c:
-            message("%d occurences" % c)
+        if matches:
+            message("{0} occurences".format(len(matches)))
         else:
             message("no match")
     except re.error as e:
         message("Invalid: %s" % e)
 
 elif argv[1] == "replace":
-    regex = argv[-2]
-    replace = argv[-1]
+    regexp = parse_arg('--regexp')
+    replace = parse_arg('--replace')
     if not PY3:
         replace = replace.decode('utf-8')
-    do_eval = '--eval' in argv
-    feedback = '--feedback' in argv
+    do_eval = parse_arg('--eval')
+    feedback = parse_arg('--feedback')
+    feedback_limit = parse_arg('--feedback-limit', required=False)
     if do_eval:
         # use \1, \2 instead of m.group(0), m.group(1), ...
         replace = re.sub(r'\\(\d+)', r'm.group(\1)', replace)
@@ -83,19 +104,20 @@ elif argv[1] == "replace":
 
     try:
         # output one replacement per line 
-        c = 0
-        for match in re.finditer(regex, region):
-            c += 1
+        matches = list(re.finditer(regexp, region))
+        for i, match in enumerate(matches):
             # output replacement in feedback-mode only when the match length is nonzero
+            if feedback and feedback_limit is not None and i >= feedback_limit:
+                break
             if not feedback or match.start() != match.end():
-                sys.stdout.write("%s %s %%s" % match.span() % escape(re.sub(regex, eval_replace if do_eval else replace, match.group(0), count=1)))
+                sys.stdout.write("%s %s %%s" % match.span() % escape(re.sub(regexp, eval_replace if do_eval else replace, match.group(0), count=1)))
                 sys.stdout.write('\n')
         if feedback:
-            if c:
-                message("%d occurences" % c)
+            if matches:
+                message("{0} occurences".format(len(matches)))
             else:
                 message("no match")
         else:
-            message("replaced %d occurences" % c)
+            message("replaced {0} occurences".format(len(matches)))
     except Exception as e:
         message("Invalid: %s" % e)

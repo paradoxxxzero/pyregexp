@@ -128,6 +128,11 @@
   "Insert regexp/replace strings from previous use as default value."
   :group 'pyregexp)
 
+(defcustom pyregexp-default-feedback-limit 50
+  "Limit number of matches shown in visual feedback. 
+If nil, don't limit the number of matches shown in visual feedback."
+  :group 'pyregexp)
+
 ;; private variables below
 
 (defconst pyregexp-match-faces '(pyregexp-match-0 pyregexp-match-1)
@@ -159,6 +164,12 @@
 
 (defvar pyregexp-use-expression nil
   "Use expression instead of string in replacement.")
+
+(defvar pyregexp-feedback-limit nil
+  "Feedback limit currently in use.")
+
+(defvar pyregexp-feedback-limit-reached nil
+  "Limit reached?")
 
 (defvar pyregexp-target-buffer nil
   "Buffer to which pyregexp is applied to.")
@@ -258,9 +269,10 @@ Return t if current line is not the line with the message."
 (defun pyregexp-current-line ()
   (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
 
-(defun pyregexp-parse-matches (s callback &optional msg)
+(defun pyregexp-parse-matches (s callback)
   "Parse string s with positions of matches and groups as returned by external script. For each position, callback is called with arguments (i j begin end),
 i being the match and j the group index and begin/end being the span of the match.
+The message line is returned.
 "
   (let (message-line) ;; store message line (last non-empty line of output)
     (with-temp-buffer
@@ -276,8 +288,10 @@ i being the match and j the group index and begin/end being the span of the matc
 		      (funcall callback i j begin end)))
 	      (forward-line 1)))
       (setq message-line (pyregexp-unescape (pyregexp-current-line) t)))
-    (when msg
-      (unless (string= "" message-line) (funcall msg message-line)))))
+    message-line
+    ;; (when msg
+    ;;   (unless (string= "" message-line) (funcall msg message-line)))
+    ))
 
 (defun pyregexp-parse-replace (s)
   "Parse string s with positions of matches and replacements as returned by external script.
@@ -311,27 +325,47 @@ and the message line."
       (get-buffer-window pyregexp-target-buffer)
     nil))
 
+(defun pyregexp-y-or-n-p (prompt)
+  "Like y-or-n-p, but returns nil if C-g was used."
+  (let* ((inhibit-quit t)
+	 (answer (with-local-quit (y-or-n-p prompt))))
+    (setq quit-flag nil)
+    answer))
+
 (defun pyregexp-regexp-feedback ()
   "Show visual feedback for matches."
   (pyregexp-delete-overlays)
-  (when (minibuffer-contents-no-properties)
-    (pyregexp-run-command 
-     (format "%s matches %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents-no-properties)))
-     '(lambda (output)
-	(pyregexp-parse-matches
-	 output 
-	 '(lambda (i j begin end) 
-	    (when (= 0 i) ;; first match: if invisible, make it visible.
-	      (if (>= begin (window-end (pyregexp-target-window) t))
-	    	  (with-current-buffer pyregexp-target-buffer
-	    	    (other-window 1)
-		    (goto-char begin)
-	    	    (other-window 1)
-	    	    )))
-	    (let ((overlay (pyregexp-get-overlay i j)))
-	      (move-overlay overlay begin end pyregexp-target-buffer)
-	      (setq pyregexp-visible-overlays (cons overlay pyregexp-visible-overlays))))
-	 'minibuffer-message)))))
+  (let ((limit-reached nil) 
+	message-line)
+  (setq message-line 
+	(pyregexp-run-command 
+	 (format "%s matches --regexp %s %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents-no-properties)) (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)))
+	 '(lambda (output)
+	    (pyregexp-parse-matches
+	     output 
+	     '(lambda (i j begin end) 
+		(when (= 0 i) ;; first match: if invisible, make it visible.
+		  (with-selected-window (pyregexp-target-window)
+		    (if (>= begin (window-end nil t))
+			(goto-char begin))))
+		(let ((overlay (pyregexp-get-overlay i j)))
+		  (move-overlay overlay begin end pyregexp-target-buffer)
+		  (setq pyregexp-visible-overlays (cons overlay pyregexp-visible-overlays)))
+		;; mark if we have reached the specified feedback limit	  
+		(when (and pyregexp-feedback-limit (= pyregexp-feedback-limit (+ i 1)) )
+		  (setq limit-reached t)))))))
+  (let ((msg '(unless (string= "" message-line)
+      (minibuffer-message message-line))))
+    (if (and limit-reached (not pyregexp-feedback-limit-reached))
+	(progn 
+	  (setq pyregexp-feedback-limit-reached t) ;; don't ask again
+	  (if (pyregexp-y-or-n-p (format "There are %d or more matches. Show all?" pyregexp-feedback-limit))
+	      ;; limit reached, user wants to show all
+	      (progn 
+		(setq pyregexp-feedback-limit nil)
+		(pyregexp-regexp-feedback)))
+	  (eval msg))
+      (eval msg)))))
 
 (defun pyregexp-unescape (s &optional newline)
   "Replacement strings returned by external script have escaped newlines and backslashes (so that there can be one replacement per line). Unescape to get back original.
@@ -348,7 +382,7 @@ Escaped newlines are only unescaped if newline is not nil."
   (pyregexp-delete-overlay-displays)
   (let ((replace-string (minibuffer-contents-no-properties)))
     (pyregexp-run-command 
-     (format "%s replace %s --feedback %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     (format "%s replace %s --feedback %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)) (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
      '(lambda (output)
 	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
 	  ;; visual feedback for matches
@@ -369,7 +403,7 @@ Escaped newlines are only unescaped if newline is not nil."
   (pyregexp-delete-overlays)
   (let ((replace-string pyregexp-replace-string))
     (pyregexp-run-command 
-     (format "%s replace %s %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     (format "%s replace %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
      '(lambda (output)
 	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
 	  ;; replace in target buffer
@@ -403,13 +437,15 @@ Escaped newlines are only unescaped if newline is not nil."
 					     (region-end)
 					   (point-max)))
 
+	(setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
+	(setq pyregexp-feedback-limit-reached nil)
+
 	(save-excursion
 	  ;; deactivate mark so that we can see our faces instead of regio-face.
 	  (deactivate-mark)
 	  (progn 
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	    (setq pyregexp-last-minibuffer-contents "")
-
 	    (setq pyregexp-regexp-string 
 		  (read-from-minibuffer "Regexp? " nil nil nil nil (if pyregexp-insert-default pyregexp-regexp-string "") t))
 	    
