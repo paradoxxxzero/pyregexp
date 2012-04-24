@@ -125,7 +125,8 @@
   :group 'pyregexp)
 
 (defcustom pyregexp-insert-default t
-  "Insert regexp/replace strings from previous use as default value.")
+  "Insert regexp/replace strings from previous use as default value."
+  :group 'pyregexp)
 
 ;; private variables below
 
@@ -134,6 +135,9 @@
 
 (defconst pyregexp-group-faces '(pyregexp-group-0 pyregexp-group-1 pyregexp-group-2)
   "Faces in list for convenience")
+
+(defconst pyregexp-overlay-priority 1001
+  "Starting priority of pyregexp overlays.")
 
 (defconst pyregexp-in-minibuffer nil
   "Is pyregexp currently being used?")
@@ -175,7 +179,7 @@
 	(if (= 0 j)
 	    (overlay-put overlay 'face (nth (mod i (length pyregexp-match-faces)) pyregexp-match-faces))
 	  (overlay-put overlay 'face (nth (mod j (length pyregexp-group-faces)) pyregexp-group-faces)))
-	(overlay-put overlay 'priority (if (= j 0) 0 1))
+	(overlay-put overlay 'priority (+ pyregexp-overlay-priority (if (= j 0) 0 1)))
 	(overlay-put overlay 'pyregexp-ij (list i j))
 	(when (= j 0)
 	  (overlay-put overlay 'intangible t))
@@ -196,7 +200,7 @@
 	  (multiple-value-bind (i j) (overlay-get overlay 'pyregexp-ij)
 	    (when (= 0 j)
 	      (overlay-put overlay 'display nil)
-	      (overlay-put overlay 'priority 0))))
+	      (overlay-put overlay 'priority pyregexp-overlay-priority))))
 	pyregexp-visible-overlays))
 
 (defun pyregexp-update ()
@@ -317,16 +321,13 @@ and the message line."
 	(pyregexp-parse-matches
 	 output 
 	 '(lambda (i j begin end) 
-	    (when (= 0 i)
-	      (let ((scroll-offset 
-		     (if (pos-visible-in-window-p begin (pyregexp-target-window))
-			 0
-		       (with-current-buffer pyregexp-target-buffer (max 0 (- (line-number-at-pos begin) (line-number-at-pos (point))))))))
-		(when (/= 0 scroll-offset)
-		  (setq other-window-scroll-buffer pyregexp-target-buffer)
-		  (scroll-other-window scroll-offset)
-		  )))
-
+	    (when (= 0 i) ;; first match: if invisible, make it visible.
+	      (if (>= begin (window-end (pyregexp-target-window) t))
+	    	  (with-current-buffer pyregexp-target-buffer
+	    	    (other-window 1)
+		    (goto-char begin)
+	    	    (other-window 1)
+	    	    )))
 	    (let ((overlay (pyregexp-get-overlay i j)))
 	      (move-overlay overlay begin end pyregexp-target-buffer)
 	      (setq pyregexp-visible-overlays (cons overlay pyregexp-visible-overlays))))
@@ -358,7 +359,7 @@ Escaped newlines are only unescaped if newline is not nil."
 		    (unless empty-match
 		      (let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
 			(overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
-			(overlay-put overlay 'priority 2))))))
+			(overlay-put overlay 'priority (+ pyregexp-overlay-priority 2)))))))
 	  (unless (string= "" message-line)
 	    (minibuffer-message message-line)))))))
 
@@ -378,9 +379,11 @@ Escaped newlines are only unescaped if newline is not nil."
 		  (let ((replacement (pyregexp-unescape replacement t)))
 		    (with-current-buffer pyregexp-target-buffer
 		      (save-excursion
-			(kill-region begin end)
+			;; first insert, then delete
+			;; this ensures that if we had an active region before, the replaced match is still part of the region
 			(goto-char begin)
-			(insert replacement))))))
+			(insert replacement)
+			(delete-char (- end begin)))))))
 	(unless (string= "" message-line)
 	  (minibuffer-message message-line)))))))
 
@@ -389,7 +392,7 @@ Escaped newlines are only unescaped if newline is not nil."
       (progn
 	;; because interactive feedback will scroll the buffer to the first visible match, push mark.
         ;; the user can get back to original position with C-x x.
-        (push-mark)
+        ;;(push-mark)
 
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-use-expression current-prefix-arg)
@@ -400,14 +403,19 @@ Escaped newlines are only unescaped if newline is not nil."
 					     (region-end)
 					   (point-max)))
 
+	(save-excursion
+	  ;; deactivate mark so that we can see our faces instead of regio-face.
+	  (deactivate-mark)
+	  (progn 
+	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	    (setq pyregexp-last-minibuffer-contents "")
 
-	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	(setq pyregexp-last-minibuffer-contents "")
-	(setq pyregexp-regexp-string (read-from-minibuffer "Regexp? " (if pyregexp-insert-default pyregexp-regexp-string "")))
-	
-	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	(setq pyregexp-last-minibuffer-contents "")
-	(setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") (if pyregexp-insert-default pyregexp-replace-string "")))
+	    (setq pyregexp-regexp-string 
+		  (read-from-minibuffer "Regexp? " nil nil nil nil (if pyregexp-insert-default pyregexp-regexp-string "") t))
+	    
+	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	    (setq pyregexp-last-minibuffer-contents "")
+	    (setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") nil nil nil nil (if pyregexp-insert-default pyregexp-replace-string "") t))))
 	
 	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
     (progn ;; execute on finish
