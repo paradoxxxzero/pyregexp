@@ -236,9 +236,19 @@ If nil, don't limit the number of matches shown in visual feedback."
 (defun pyregexp-minibuffer-setup ()
   "Mark the default minibuffer contents upon entering, so that one can delete it right away."
   (when pyregexp-in-minibuffer
+    (when pyregexp-insert-default
+      ;; insert default value (do it here since the second argument of read-from-minibuffer, INITIAL-CONTENTS, is obsolete.
+      (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	     (when pyregexp-regexp-string
+	       (insert pyregexp-regexp-string)))
+	     ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	      (when pyregexp-replace-string
+		(insert pyregexp-replace-string)))))
+    ;; mark inserted default
     (goto-char (minibuffer-prompt-end))
     (push-mark (point))
-    (forward-char (length (minibuffer-contents-no-properties)))))
+    (forward-char (length (minibuffer-contents-no-properties))))
+  )
 (add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
 (defun pyregexp-command (command)
@@ -424,10 +434,6 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-interactive-get-args ()
   (unwind-protect 
       (progn
-	;; because interactive feedback will scroll the buffer to the first visible match, push mark.
-        ;; the user can get back to original position with C-x x.
-        ;;(push-mark)
-
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-use-expression current-prefix-arg)
 	(setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
@@ -441,17 +447,16 @@ Escaped newlines are only unescaped if newline is not nil."
 	(setq pyregexp-feedback-limit-reached nil)
 
 	(save-excursion
-	  ;; deactivate mark so that we can see our faces instead of regio-face.
+	  ;; deactivate mark so that we can see our faces instead of region-face.
 	  (deactivate-mark)
 	  (progn 
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	    (setq pyregexp-last-minibuffer-contents "")
-	    (setq pyregexp-regexp-string 
-		  (read-from-minibuffer "Regexp? " nil nil nil nil (if pyregexp-insert-default pyregexp-regexp-string "") t))
+	    (setq pyregexp-regexp-string (read-from-minibuffer "Regexp? "))
 	    
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 	    (setq pyregexp-last-minibuffer-contents "")
-	    (setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") nil nil nil nil (if pyregexp-insert-default pyregexp-replace-string "") t))))
+	    (setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ")))))
 	
 	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
     (progn ;; execute on finish
