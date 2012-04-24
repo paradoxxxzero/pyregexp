@@ -117,16 +117,15 @@
   "Third face for displaying a matching group."
   :group 'pyregexp)
 
-(defcustom pyregexp-show-feedback-whole-buffer t
-  "Show visual feedback in whole buffer. If nil, show only in visible area."
-  :group 'pyregexp)
-
 (defconst pyregexp-filename (expand-file-name "pyregexp.py" (file-name-directory load-file-name))
   "Path to pyregexp.py")
 
 (defcustom pyregexp-command-prefix (format "python %s" pyregexp-filename)
   "External script to compute the replacements."
   :group 'pyregexp)
+
+(defcustom pyregexp-insert-default t
+  "Insert regexp/replace strings from previous use as default value.")
 
 ;; private variables below
 
@@ -147,9 +146,6 @@
 
 (defvar pyregexp-target-buffer-end nil
   "Ending position in target buffer.")
-
-(defvar pyregexp-target-buffer-end-feedback nil
-  "Ending position in target buffer during feedback is window-end, ending position of visible area.")
 
 (defvar pyregexp-regexp-string nil
   "Entered regexp.")
@@ -209,8 +205,8 @@
     (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
       (pyregexp-delete-overlay-displays))
     ;; do something when minibuffer contents changes
-    (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents))
-      (setq pyregexp-last-minibuffer-contents (minibuffer-contents))
+    (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
+      (setq pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
       ;; minibuffer contents has changed, update visual feedback.
       ;; not using after-change-hook because this hook applies to the whole minibuffer, including minibuffer-messages
       ;; that disappear after a while.
@@ -221,6 +217,14 @@
 	     )))))
 
 (add-hook 'post-command-hook 'pyregexp-update)
+
+(defun pyregexp-minibuffer-setup ()
+  "Mark the default minibuffer contents upon entering, so that one can delete it right away."
+  (when pyregexp-in-minibuffer
+    (goto-char (minibuffer-prompt-end))
+    (push-mark (point))
+    (forward-char (length (minibuffer-contents-no-properties)))))
+(add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
 (defun pyregexp-command (command)
   (let ((stdout-buffer (generate-new-buffer (generate-new-buffer-name " *pyregex stdout*")))
@@ -298,20 +302,34 @@ and the message line."
 	  ((equal exit-code 1)
 	   (message "script failed:%s\n" output)))))
 
+(defun pyregexp-target-window ()
+  (if pyregexp-target-buffer
+      (get-buffer-window pyregexp-target-buffer)
+    nil))
+
 (defun pyregexp-regexp-feedback ()
   "Show visual feedback for matches."
   (pyregexp-delete-overlays)
-  (when (minibuffer-contents)
+  (when (minibuffer-contents-no-properties)
     (pyregexp-run-command 
-     (format "%s matches %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents)))
+     (format "%s matches %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents-no-properties)))
      '(lambda (output)
 	(pyregexp-parse-matches
 	 output 
 	 '(lambda (i j begin end) 
-	    (when (<= end pyregexp-target-buffer-end-feedback)
-	      (let ((overlay (pyregexp-get-overlay i j)))
-		(move-overlay overlay begin end pyregexp-target-buffer)
-		(setq pyregexp-visible-overlays (cons overlay pyregexp-visible-overlays)))))
+	    (when (= 0 i)
+	      (let ((scroll-offset 
+		     (if (pos-visible-in-window-p begin (pyregexp-target-window))
+			 0
+		       (with-current-buffer pyregexp-target-buffer (max 0 (- (line-number-at-pos begin) (line-number-at-pos (point))))))))
+		(when (/= 0 scroll-offset)
+		  (setq other-window-scroll-buffer pyregexp-target-buffer)
+		  (scroll-other-window scroll-offset)
+		  )))
+
+	    (let ((overlay (pyregexp-get-overlay i j)))
+	      (move-overlay overlay begin end pyregexp-target-buffer)
+	      (setq pyregexp-visible-overlays (cons overlay pyregexp-visible-overlays))))
 	 'minibuffer-message)))))
 
 (defun pyregexp-unescape (s &optional newline)
@@ -327,7 +345,7 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-do-replace-feedback ()
   "Show visual feedback for replacements."
   (pyregexp-delete-overlay-displays)
-  (let ((replace-string (minibuffer-contents)))
+  (let ((replace-string (minibuffer-contents-no-properties)))
     (pyregexp-run-command 
      (format "%s replace %s --feedback %s %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
      '(lambda (output)
@@ -335,13 +353,12 @@ Escaped newlines are only unescaped if newline is not nil."
 	  ;; visual feedback for matches
 	  (loop for replacement-info in replacements do 
 		(multiple-value-bind (replacement begin end i) replacement-info
-		  (when (<= end pyregexp-target-buffer-end-feedback)
-		    (let* ((overlay (pyregexp-get-overlay i 0))
-			   (empty-match (equal (overlay-start overlay) (overlay-end overlay))))
-		      (unless empty-match
-			(let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
-			  (overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
-			  (overlay-put overlay 'priority 2)))))))
+		  (let* ((overlay (pyregexp-get-overlay i 0))
+			 (empty-match (equal (overlay-start overlay) (overlay-end overlay))))
+		    (unless empty-match
+		      (let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
+			(overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
+			(overlay-put overlay 'priority 2))))))
 	  (unless (string= "" message-line)
 	    (minibuffer-message message-line)))))))
 
@@ -363,13 +380,17 @@ Escaped newlines are only unescaped if newline is not nil."
 		      (save-excursion
 			(kill-region begin end)
 			(goto-char begin)
-			(insert replacement)))))))
+			(insert replacement))))))
 	(unless (string= "" message-line)
-	  (minibuffer-message message-line))))))
+	  (minibuffer-message message-line)))))))
 
 (defun pyregexp-interactive-get-args ()
   (unwind-protect 
       (progn
+	;; because interactive feedback will scroll the buffer to the first visible match, push mark.
+        ;; the user can get back to original position with C-x x.
+        (push-mark)
+
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-use-expression current-prefix-arg)
 	(setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
@@ -378,19 +399,15 @@ Escaped newlines are only unescaped if newline is not nil."
 	(setq pyregexp-target-buffer-end (if (and transient-mark-mode mark-active) 
 					     (region-end)
 					   (point-max)))
-	(setq pyregexp-target-buffer-end-feedback (if (and 
-						       pyregexp-show-feedback-whole-buffer
-						       (<=  (window-end nil t) pyregexp-target-buffer-end))
-						      (window-end nil t)
-						    end))
+
 
 	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	(setq pyregexp-last-minibuffer-contents "")
-	(setq pyregexp-regexp-string (read-from-minibuffer "Regexp? " ""))
+	(setq pyregexp-regexp-string (read-from-minibuffer "Regexp? " (if pyregexp-insert-default pyregexp-regexp-string "")))
 	
 	(setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 	(setq pyregexp-last-minibuffer-contents "")
-	(setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") ""))
+	(setq pyregexp-replace-string (read-from-minibuffer (if pyregexp-use-expression "Replace (expression)? " "Replace? ") (if pyregexp-insert-default pyregexp-replace-string "")))
 	
 	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
     (progn ;; execute on finish
