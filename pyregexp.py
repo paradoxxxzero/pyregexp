@@ -86,20 +86,20 @@ elif argv[1] == "replace":
         # use \1, \2 instead of m.group(0), m.group(1), ...
         replace = re.sub(r'\\(\d+)', r'm.group(\1)', replace)
     region = sys.stdin.read()
-    i = [0]
+    match_counter = [0]
 
     def eval_replace(match):
         _globals = {}
         # those variables can be used in the replacement expression
         _locals = {
             'm': match,
-            'i': i[0],
+            'i': match_counter[0],
             }
         if PY3:
             replacement = str(eval(replace, _globals, _locals))
         else:
             replacement = unicode(eval(replace, _globals, _locals)).encode('utf-8')
-        i[0] += 1
+        match_counter[0] += 1
         return replacement
 
     try:
