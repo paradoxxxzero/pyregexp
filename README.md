@@ -21,10 +21,10 @@ To customize, use `M-x customize-group [RET] pyregexp`. You can specify how to i
 
 ## Examples
 
-![Example 1](/screenshots/pyregexp1.png]
+![Example 1](/screenshots/pyregexp1.png)
 
-![Example 2](/screenshots/pyregexp2.png]
+![Example 2](/screenshots/pyregexp2.png)
 
-![Example 3](/screenshots/pyregexp3.png]
+![Example 3](/screenshots/pyregexp3.png)
 
-![Example 4](/screenshots/pyregexp4.png]
+![Example 4](/screenshots/pyregexp4.png)
