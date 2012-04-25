@@ -21,10 +21,11 @@ To customize, use `M-x customize-group [RET] pyregexp`. You can specify how to i
 
 ## Examples
 
-![Example 1](/screenshots/pyregexp1.png)
-
-![Example 2](/screenshots/pyregexp2.png)
-
-![Example 3](/screenshots/pyregexp3.png)
-
-![Example 4](/screenshots/pyregexp4.png)
+### Example 1
+![Example 1](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp1.png)
+### Example 2
+![Example 2](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp2.png)
+### Example 3
+![Example 3](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp3.png)
+### Example 4
+![Example 4](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp4.png)
