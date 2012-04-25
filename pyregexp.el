@@ -124,8 +124,14 @@
   "External script to compute the replacements."
   :group 'pyregexp)
 
-(defcustom pyregexp-insert-default nil
-  "Insert regexp/replace strings from previous use as default value."
+(defcustom pyregexp-minibuffer-help-regexp
+  "C-c ?: help, C-c i: toggle case, C-c m: toggle multiline match of ^ and $, C-c s: toggle dot matches newline"
+  "Help string shown in minibuffer when entering regexp."
+  :group 'pyregexp)
+
+(defcustom pyregexp-minibuffer-help-replace
+  "C-c ?: help, C-c C-c: toggle expression, C-c m: show matches/groups"
+  "Help string shown in minibuffer when entering replacement."
   :group 'pyregexp)
 
 (defcustom pyregexp-default-feedback-limit 50
@@ -206,36 +212,34 @@ See also: http://docs.python.org/library/re.html#re.I"
 
 (defvar pyregexp-minibuffer-regexp-keymap 
   (let ((map (copy-keymap minibuffer-local-map)))
-    (define-key map (kbd "C-c ?") '(lambda () (interactive) (pyregexp-minibuffer-help)))
+    (define-key map (kbd "C-c ?") (lambda () (interactive) (pyregexp-minibuffer-help)))
 
     ;; C-i is also <tab>. http://stackoverflow.com/questions/1792326/how-do-i-bind-a-command-to-c-i-without-changing-tab
     (setq map (delq '(kp-tab . [9]) map))
     ;;(keyboard-translate ?\C-i ?\H-i)
-    (define-key map "\C-c\C-i" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'I)))
-    (define-key map "\C-c\C-m" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'M)))
-    (define-key map "\C-c\C-s" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'S)))
-    (define-key map "\C-c\C-u" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'U)))
+    (define-key map (kbd "C-c i") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'I)))
+    (define-key map (kbd "C-c m") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'M)))
+    (define-key map (kbd "C-c s") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'S)))
+    (define-key map (kbd "C-c u") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'U)))
 
     map)
   "Keymap used while using pyregexp,")
 
 (defvar pyregexp-minibuffer-replace-keymap 
   (let ((map (copy-keymap minibuffer-local-map)))
-    (define-key map (kbd "C-c ?") '(lambda () (interactive) (pyregexp-minibuffer-help)))
-
-    (define-key map "\C-c\C-c" (lambda () 
-				 (interactive) 
-				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-				   (setq pyregexp-use-expression (not pyregexp-use-expression))
-				   (pyregexp-update-minibuffer-prompt)
-				   (pyregexp-do-replace-feedback))))
-    (define-key map "\C-c\C-m" (lambda ()
-				 (interactive)
-				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-				   (pyregexp-delete-overlay-displays)
-				   ;; wait for any input to redisplay replacements
-				   (read-key)
-				   (pyregexp-do-replace-feedback))))
+    (define-key map (kbd "C-c ?") (lambda () (interactive) (pyregexp-minibuffer-help)))
+    (define-key map (kbd "C-c C-c") (lambda () (interactive) 
+				      (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+					(setq pyregexp-use-expression (not pyregexp-use-expression))
+					(pyregexp-update-minibuffer-prompt)
+					(pyregexp-do-replace-feedback))))
+    (define-key map (kbd "C-c m") (lambda ()
+				    (interactive)
+				    (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+				      (pyregexp-delete-overlay-displays)
+				      ;; wait for any input to redisplay replacements
+				      (read-key)
+				      (pyregexp-do-replace-feedback))))
     map)
   "Keymap used while using pyregexp,")
 
@@ -243,13 +247,13 @@ See also: http://docs.python.org/library/re.html#re.I"
   (when (and pyregexp-in-minibuffer (minibufferp))
     (pyregexp-minibuffer-set-prompt
      (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	    (format "Regexp? %s" (pyregexp-get-regexp-modifiers-prefix)))
+	    (format "Regexp: %s" (pyregexp-get-regexp-modifiers-prefix)))
 	   ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 	    (concat
 	     "Replace"
 	     (when pyregexp-use-expression " (using expression)")
 	     (format " (%s)" (pyregexp-get-regexp-string))
-	     "? "))))))
+	     ": "))))))
 
 (defun pyregexp-toggle-regexp-modifier(modifier)
   (setq pyregexp-regexp-modifiers 
@@ -289,9 +293,9 @@ See also: http://docs.python.org/library/re.html#re.I"
 (defun pyregexp-minibuffer-help ()
   (minibuffer-message
    (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	  "C-c ?: help")
+	  pyregexp-minibuffer-help-regexp)
 	 ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	  "C-c ?: help, C-c C-c: toggle expression, C-c C-m: show matches/groups"))))
+	  pyregexp-minibuffer-help-replace))))
 
 (defun pyregexp-get-overlay (i j)
   "i: match index, j: submatch index"
@@ -329,44 +333,32 @@ See also: http://docs.python.org/library/re.html#re.I"
 
 (defun pyregexp-update (beg end len)
   (when (and pyregexp-in-minibuffer (minibufferp))
-
-    ;; do something when minibuffer contents changes
-    (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
-      (setq pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
-      ;; minibuffer contents has changed, update visual feedback.
-      ;; not using after-change-hook because this hook applies to the whole minibuffer, including minibuffer-messages
-      ;; that disappear after a while.
-      (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	     (pyregexp-regexp-feedback))
-	    ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	     (pyregexp-do-replace-feedback))))))
+    ;; minibuffer-up temporarily deletes minibuffer contents before inserting new one.
+    ;; don't do anything then as the messages shown my pyregexp are irritating while browsing the history.
+    (unless (and (string= "" (minibuffer-contents-no-properties))
+		 (equal last-command 'previous-history-element))
+      ;; do something when minibuffer contents changes
+      (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
+	(setq pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
+	;; minibuffer contents has changed, update visual feedback.
+	;; not using after-change-hook because this hook applies to the whole minibuffer, including minibuffer-messages
+	;; that disappear after a while.
+	(cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	       (pyregexp-regexp-feedback))
+	      ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	       (pyregexp-do-replace-feedback)))))))
 (add-hook 'after-change-functions 'pyregexp-update)
 
 (defun pyregexp-minibuffer-set-prompt (prompt)
   "Updates minibuffer prompt. Call when minibuffer is active."
   (let ((inhibit-read-only t)) 
-    (put-text-property (point-min) (minibuffer-prompt-end) 'read-only nil))
-  (put-text-property (point-min) (minibuffer-prompt-end) 'display prompt)
-  (put-text-property (point-min) (minibuffer-prompt-end) 'read-only t))
+    (put-text-property (point-min) (minibuffer-prompt-end) 'display prompt)))
 
 (defun pyregexp-minibuffer-setup ()
-  "Mark the default minibuffer contents upon entering, so that one can delete it right away."
+  "Setup prompt and help when entering minibuffer."
   (when pyregexp-in-minibuffer
     (progn
-      (when pyregexp-insert-default
-	;; insert default value (do it here since the second argument of read-from-minibuffer, INITIAL-CONTENTS, is obsolete.
-	(cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	       (when pyregexp-regexp-string (insert pyregexp-regexp-string)))
-	      ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	       (when pyregexp-replace-string (insert pyregexp-replace-string))))
-	;; mark inserted default
-	(goto-char (minibuffer-prompt-end))
-	(push-mark (point))
-	(forward-char (length (minibuffer-contents-no-properties))))
       (pyregexp-update-minibuffer-prompt)
-      ;; (insert (propertize " " 'face 'minibuffer-prompt 'read-only t 'display "HHUHU"))
-      ;; (let ((inhibit-read-only t)) (put-text-property (- (point) 1) (point) 'read-only nil))
-      ;; (put-text-property (- (point) 1) (point) 'display "Lala")
       (pyregexp-minibuffer-help))))
 (add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
@@ -574,15 +566,17 @@ Escaped newlines are only unescaped if newline is not nil."
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	    (setq pyregexp-last-minibuffer-contents "")
 	    (setq pyregexp-regexp-string 
-		  (read-from-minibuffer "Regexp? " nil 
-					pyregexp-minibuffer-regexp-keymap))
+		  (read-from-minibuffer 
+		   " " ;; prompt will be  set in pyregexp-minibuffer-setup
+		   nil pyregexp-minibuffer-regexp-keymap))
 	    ;;(setq pyregexp-regexp-string (format "%s%s" (pyregexp-get-regexp-modifiers-prefix) pyregexp-regexp-string))
 	    
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 	    (setq pyregexp-last-minibuffer-contents "")
 	    (setq pyregexp-replace-string
-		  (read-from-minibuffer (format "Replace (%s)? " (pyregexp-get-regexp-string)) nil 
-					pyregexp-minibuffer-replace-keymap))))
+		  (read-from-minibuffer 
+		   " " ;; prompt will be  set in pyregexp-minibuffer-setup 
+		   nil pyregexp-minibuffer-replace-keymap))))
 	
 	(list 
 	 pyregexp-regexp-string 
