@@ -147,9 +147,6 @@ If nil, don't limit the number of matches shown in visual feedback."
 (defvar pyregexp-in-minibuffer nil
   "Is pyregexp currently being used?")
 
-(defvar pyregexp-last-minibuffer-contents nil
-  "Keeping track of minibuffer changes")
-
 (defvar pyregexp-target-buffer-start nil
   "Starting position in target buffer.")
 
@@ -189,10 +186,17 @@ If nil, don't limit the number of matches shown in visual feedback."
 				 (interactive) 
 				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 				   (setq pyregexp-use-expression (not pyregexp-use-expression))
+				   (pyregexp-do-replace-feedback (if pyregexp-use-expression 
+				   			   "using expression"
+				   			 "using string")))))
+    (define-key map "\C-c\C-m" (lambda ()
+				 (interactive)
+				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 				   (pyregexp-delete-overlay-displays)
-				   (minibuffer-message (if pyregexp-use-expression 
-							   "using expression"
-							 "using string")))))
+				   ;; wait for any input to redisplay replacements
+				   (read-key)
+				   (pyregexp-do-replace-feedback)
+				   )))
     map)
   "Keymap used while using pyregexp")
 
@@ -201,7 +205,7 @@ If nil, don't limit the number of matches shown in visual feedback."
    (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
 	  "C-c ?: help")
 	 ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	  "C-c ?: help, C-c: toggle expression"))))
+	  "C-c ?: help, C-c C-c: toggle expression, C-c C-m: show matches/groups"))))
 
 (defun pyregexp-get-overlay (i j)
   "i: match index, j: submatch index"
@@ -237,23 +241,13 @@ If nil, don't limit the number of matches shown in visual feedback."
 	      (overlay-put overlay 'priority pyregexp-overlay-priority))))
 	pyregexp-visible-overlays))
 
-(defun pyregexp-update ()
+(defun pyregexp-update (beg end len)
   (when (and pyregexp-in-minibuffer (minibufferp))
-    ;; delete overlay displays when we are in minibuffer and do any action (like moving the point).
-    (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-      (pyregexp-delete-overlay-displays)) 
-    ;; do something when minibuffer contents changes
-    (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
-      (setq pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
-      ;; minibuffer contents has changed, update visual feedback.
-      ;; not using after-change-hook because this hook applies to the whole minibuffer, including minibuffer-messages
-      ;; that disappear after a while.
-      (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	     (pyregexp-regexp-feedback))
-	    ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	     (pyregexp-do-replace-feedback))))))
-
-(add-hook 'post-command-hook 'pyregexp-update)
+    (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	   (pyregexp-regexp-feedback))
+	  ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	   (pyregexp-do-replace-feedback)))))
+(add-hook 'after-change-functions 'pyregexp-update)
 
 (defun pyregexp-minibuffer-setup ()
   "Mark the default minibuffer contents upon entering, so that one can delete it right away."
@@ -409,6 +403,9 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-format-replace-feedback (original replacement)
   (format "%s => %s" original replacement))
 
+(defun pyregexp-compose-messages(&rest msgs)
+  (mapconcat 'identity (delq nil (mapcar (lambda (msg) (if (or (not msg) (string= "" msg)) nil msg)) msgs)) " - "))
+
 (defun pyregexp-do-replace-feedback (&optional force-message)
   "Show visual feedback for replacements."
   (pyregexp-delete-overlay-displays)
@@ -426,10 +423,9 @@ Escaped newlines are only unescaped if newline is not nil."
 		      (let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
 			(overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
 			(overlay-put overlay 'priority (+ pyregexp-overlay-priority 2)))))))
-	  (if force-message
-	      (minibuffer-message force-message)
-	    (unless (string= "" message-line)
-	      (minibuffer-message message-line))))))))
+	  (let ((composed-message (pyregexp-compose-messages message-line force-message)))
+	    (unless (string= "" composed-message)
+	    (minibuffer-message composed-message))))))))
 
 (defun pyregexp-do-replace ()
   "Replace matches."
@@ -475,16 +471,14 @@ Escaped newlines are only unescaped if newline is not nil."
 	  (deactivate-mark)
 	  (progn 
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	    (setq pyregexp-last-minibuffer-contents "")
 	    (setq pyregexp-regexp-string 
 		  (read-from-minibuffer "Regexp? " nil 
 					;;pyregexp-minibuffer-keymap
 		  ))
 	    
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	    (setq pyregexp-last-minibuffer-contents "")
 	    (setq pyregexp-replace-string 
-		  (read-from-minibuffer "Replace? " nil 
+		  (read-from-minibuffer (format "Replace (%s)? " pyregexp-regexp-string) nil 
 		   pyregexp-minibuffer-replace-keymap))))
 	
 	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
