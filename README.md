@@ -2,9 +2,13 @@
 
 pyregexp is a command for emacs which enables you to use Python regular expressions and either a Python string or a Python expression for doing replacements.
 
-While constructing the regexp in the minibuffer, you get live visual feedback for the matches, including group matches.
+While constructing the regexp in the minibuffer, you get live visual feedback for the matches, including group matches:
 
-While constructing the replacement in the minibuffer, you get live visual feedback for the replacements.
+![entering regexp](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp0A.png)
+
+While constructing the replacement in the minibuffer, you get live visual feedback for the replacements:
+
+![entering replacement](https://github.com/benma/pyregexp/raw/master/screenshots/pyregexp0B.png)
 
 ## Installation
 
