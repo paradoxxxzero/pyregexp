@@ -541,6 +541,7 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-interactive-get-args ()
   (unwind-protect 
       (progn
+	(when pyregexp-in-minibuffer (error "pyregexp already in use."))
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-use-expression current-prefix-arg)
 	(setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
@@ -608,6 +609,7 @@ replace: \"\\n{}. {}\".format(i+1, \\0)
    (pyregexp-interactive-get-args))
   (unwind-protect 
       (progn 
+	(when pyregexp-in-minibuffer (error "pyregexp already in use."))
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-target-buffer-start start)
 	(setq pyregexp-target-buffer-end end)
