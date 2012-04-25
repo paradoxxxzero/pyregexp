@@ -124,13 +124,18 @@
   "External script to compute the replacements."
   :group 'pyregexp)
 
-(defcustom pyregexp-insert-default t
+(defcustom pyregexp-insert-default nil
   "Insert regexp/replace strings from previous use as default value."
   :group 'pyregexp)
 
 (defcustom pyregexp-default-feedback-limit 50
   "Limit number of matches shown in visual feedback. 
 If nil, don't limit the number of matches shown in visual feedback."
+  :group 'pyregexp)
+
+(defcustom pyregexp-default-regexp-modifiers '(M)
+  "Modifiers that are applied by default. All modifiers are: '(I M S U).
+See also: http://docs.python.org/library/re.html#re.I"
   :group 'pyregexp)
 
 ;; private variables below
@@ -146,6 +151,9 @@ If nil, don't limit the number of matches shown in visual feedback."
 
 (defvar pyregexp-in-minibuffer nil
   "Is pyregexp currently being used?")
+
+(defvar pyregexp-last-minibuffer-contents nil
+  "Keeping track of minibuffer changes")
 
 (defvar pyregexp-target-buffer-start nil
   "Starting position in target buffer.")
@@ -177,28 +185,106 @@ If nil, don't limit the number of matches shown in visual feedback."
 (defvar pyregexp-visible-overlays (list)
   "Overlays currently visible.")
 
+;; modifiers IMSU (see http://docs.python.org/library/re.html#re.I)
+(defvar pyregexp-regexp-modifiers '()
+  "Modifiers in use.")
+
+
+;; (make-variable-buffer-local 'pyregexp-in-minibuffer)
+;; (make-variable-buffer-local 'pyregexp-last-minibuffer-contents)
+;; (make-variable-buffer-local 'pyregexp-target-buffer-start)
+;; (make-variable-buffer-local 'pyregexp-target-buffer-end)
+;; (make-variable-buffer-local 'pyregexp-regexp-string)
+;; (make-variable-buffer-local 'pyregexp-replace-string)
+;; (make-variable-buffer-local 'pyregexp-use-expression)
+;; (make-variable-buffer-local 'pyregexp-feedback-limit)
+;; (make-variable-buffer-local 'pyregexp-feedback-limit-reached)
+;; (make-variable-buffer-local 'pyregexp-target-buffer)
+;; (make-variable-buffer-local 'pyregexp-overlays)
+;; (make-variable-buffer-local 'pyregexp-visible-overlays)
+;; (make-variable-buffer-local 'pyregexp-modifiers)
+
+(defvar pyregexp-minibuffer-regexp-keymap 
+  (let ((map (copy-keymap minibuffer-local-map)))
+    (define-key map (kbd "C-c ?") '(lambda () (interactive) (pyregexp-minibuffer-help)))
+
+    ;; C-i is also <tab>. http://stackoverflow.com/questions/1792326/how-do-i-bind-a-command-to-c-i-without-changing-tab
+    (setq map (delq '(kp-tab . [9]) map))
+    ;;(keyboard-translate ?\C-i ?\H-i)
+    (define-key map "\C-c\C-i" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'I)))
+    (define-key map "\C-c\C-m" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'M)))
+    (define-key map "\C-c\C-s" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'S)))
+    (define-key map "\C-c\C-u" (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'U)))
+
+    map)
+  "Keymap used while using pyregexp,")
+
 (defvar pyregexp-minibuffer-replace-keymap 
   (let ((map (copy-keymap minibuffer-local-map)))
-    (define-key map (kbd "C-c ?") '(lambda () 
-				     (interactive) 
-				     (pyregexp-minibuffer-help)))
+    (define-key map (kbd "C-c ?") '(lambda () (interactive) (pyregexp-minibuffer-help)))
+
     (define-key map "\C-c\C-c" (lambda () 
 				 (interactive) 
 				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 				   (setq pyregexp-use-expression (not pyregexp-use-expression))
-				   (pyregexp-do-replace-feedback (if pyregexp-use-expression 
-				   			   "using expression"
-				   			 "using string")))))
+				   (pyregexp-update-minibuffer-prompt)
+				   (pyregexp-do-replace-feedback))))
     (define-key map "\C-c\C-m" (lambda ()
 				 (interactive)
 				 (when (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
 				   (pyregexp-delete-overlay-displays)
 				   ;; wait for any input to redisplay replacements
 				   (read-key)
-				   (pyregexp-do-replace-feedback)
-				   )))
+				   (pyregexp-do-replace-feedback))))
     map)
-  "Keymap used while using pyregexp")
+  "Keymap used while using pyregexp,")
+
+(defun pyregexp-update-minibuffer-prompt ()
+  (when (and pyregexp-in-minibuffer (minibufferp))
+    (pyregexp-minibuffer-set-prompt
+     (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	    (format "Regexp? %s" (pyregexp-get-regexp-modifiers-prefix)))
+	   ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	    (concat
+	     "Replace"
+	     (when pyregexp-use-expression " (using expression)")
+	     (format " (%s)" (pyregexp-get-regexp-string))
+	     "? "))))))
+
+(defun pyregexp-toggle-regexp-modifier(modifier)
+  (setq pyregexp-regexp-modifiers 
+	(if (memq modifier pyregexp-regexp-modifiers)
+	    (delq modifier pyregexp-regexp-modifiers)
+	  (cons modifier pyregexp-regexp-modifiers)))
+  (pyregexp-update-minibuffer-prompt)
+  (pyregexp-regexp-feedback))
+
+(defun pyregexp-get-regexp-string ()
+  (concat (pyregexp-get-regexp-modifiers-prefix) 
+	  (if (equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp) 
+	      (minibuffer-contents-no-properties) 
+	    pyregexp-regexp-string)))
+
+(defun pyregexp-get-regexp-modifiers-prefix ()
+  "Construct (?imsu) prefix based on selected modifiers."
+  (let (modifiers-sorted)
+    (mapc (lambda (m)
+	    (when (memq m pyregexp-regexp-modifiers)
+	      (setq modifiers-sorted (cons m modifiers-sorted)))
+	    ) '(I M S U) ;; sort according to this order
+	  )
+    (let ((s (mapconcat 
+	      'identity 
+	      (delq nil 
+		    (mapcar (lambda (m)
+			      (cond ((equal m 'I) "i")
+				    ((equal m 'M) "m")
+				    ((equal m 'S) "s")
+				    ((equal m 'U) "u")
+				    (t nil)))
+			    (nreverse modifiers-sorted)) )
+	      "")))
+      (if (string= "" s) "" (format "(?%s)" s)))))
 
 (defun pyregexp-minibuffer-help ()
   (minibuffer-message
@@ -243,11 +329,25 @@ If nil, don't limit the number of matches shown in visual feedback."
 
 (defun pyregexp-update (beg end len)
   (when (and pyregexp-in-minibuffer (minibufferp))
-    (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	   (pyregexp-regexp-feedback))
-	  ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	   (pyregexp-do-replace-feedback)))))
+
+    ;; do something when minibuffer contents changes
+    (unless (string= pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
+      (setq pyregexp-last-minibuffer-contents (minibuffer-contents-no-properties))
+      ;; minibuffer contents has changed, update visual feedback.
+      ;; not using after-change-hook because this hook applies to the whole minibuffer, including minibuffer-messages
+      ;; that disappear after a while.
+      (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	     (pyregexp-regexp-feedback))
+	    ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	     (pyregexp-do-replace-feedback))))))
 (add-hook 'after-change-functions 'pyregexp-update)
+
+(defun pyregexp-minibuffer-set-prompt (prompt)
+  "Updates minibuffer prompt. Call when minibuffer is active."
+  (let ((inhibit-read-only t)) 
+    (put-text-property (point-min) (minibuffer-prompt-end) 'read-only nil))
+  (put-text-property (point-min) (minibuffer-prompt-end) 'display prompt)
+  (put-text-property (point-min) (minibuffer-prompt-end) 'read-only t))
 
 (defun pyregexp-minibuffer-setup ()
   "Mark the default minibuffer contents upon entering, so that one can delete it right away."
@@ -263,7 +363,10 @@ If nil, don't limit the number of matches shown in visual feedback."
 	(goto-char (minibuffer-prompt-end))
 	(push-mark (point))
 	(forward-char (length (minibuffer-contents-no-properties))))
-    
+      (pyregexp-update-minibuffer-prompt)
+      ;; (insert (propertize " " 'face 'minibuffer-prompt 'read-only t 'display "HHUHU"))
+      ;; (let ((inhibit-read-only t)) (put-text-property (- (point) 1) (point) 'read-only nil))
+      ;; (put-text-property (- (point) 1) (point) 'display "Lala")
       (pyregexp-minibuffer-help))))
 (add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
@@ -365,7 +468,7 @@ and the message line."
 	message-line)
   (setq message-line 
 	(pyregexp-run-command 
-	 (format "%s matches --regexp %s %s" pyregexp-command-prefix (shell-quote-argument (minibuffer-contents-no-properties)) (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)))
+	 (format "%s matches --regexp %s %s" pyregexp-command-prefix (shell-quote-argument (pyregexp-get-regexp-string)) (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)))
 	 '(lambda (output)
 	    (pyregexp-parse-matches
 	     output 
@@ -403,15 +506,12 @@ Escaped newlines are only unescaped if newline is not nil."
 (defun pyregexp-format-replace-feedback (original replacement)
   (format "%s => %s" original replacement))
 
-(defun pyregexp-compose-messages(&rest msgs)
-  (mapconcat 'identity (delq nil (mapcar (lambda (msg) (if (or (not msg) (string= "" msg)) nil msg)) msgs)) " - "))
-
-(defun pyregexp-do-replace-feedback (&optional force-message)
+(defun pyregexp-do-replace-feedback ()
   "Show visual feedback for replacements."
   (pyregexp-delete-overlay-displays)
   (let ((replace-string (minibuffer-contents-no-properties)))
     (pyregexp-run-command 
-     (format "%s replace %s --feedback %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)) (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     (format "%s replace %s --feedback %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (when pyregexp-feedback-limit (format "--feedback-limit %s" pyregexp-feedback-limit)) (shell-quote-argument (pyregexp-get-regexp-string)) (shell-quote-argument replace-string))
      '(lambda (output)
 	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
 	  ;; visual feedback for matches
@@ -423,9 +523,9 @@ Escaped newlines are only unescaped if newline is not nil."
 		      (let ((original (with-current-buffer pyregexp-target-buffer (buffer-substring-no-properties (overlay-start overlay) (overlay-end overlay)))))
 			(overlay-put overlay 'display (pyregexp-format-replace-feedback original (pyregexp-unescape replacement)))
 			(overlay-put overlay 'priority (+ pyregexp-overlay-priority 2)))))))
-	  (let ((composed-message (pyregexp-compose-messages message-line force-message)))
-	    (unless (string= "" composed-message)
-	    (minibuffer-message composed-message))))))))
+	  
+	  (unless (string= "" message-line)
+	    (minibuffer-message message-line)))))))
 
 (defun pyregexp-do-replace ()
   "Replace matches."
@@ -433,7 +533,7 @@ Escaped newlines are only unescaped if newline is not nil."
   (pyregexp-delete-overlays)
   (let ((replace-string pyregexp-replace-string))
     (pyregexp-run-command 
-     (format "%s replace %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument pyregexp-regexp-string) (shell-quote-argument replace-string))
+     (format "%s replace %s --regexp %s --replace %s" pyregexp-command-prefix (if pyregexp-use-expression "--eval" "") (shell-quote-argument (pyregexp-get-regexp-string)) (shell-quote-argument replace-string))
      '(lambda (output)
 	(multiple-value-bind (replacements message-line) (pyregexp-parse-replace output)
 	  ;; replace in target buffer
@@ -465,29 +565,38 @@ Escaped newlines are only unescaped if newline is not nil."
 
 	(setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
 	(setq pyregexp-feedback-limit-reached nil)
+	(setq pyregexp-regexp-modifiers pyregexp-default-regexp-modifiers)
 
 	(save-excursion
 	  ;; deactivate mark so that we can see our faces instead of region-face.
 	  (deactivate-mark)
 	  (progn 
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	    (setq pyregexp-last-minibuffer-contents "")
 	    (setq pyregexp-regexp-string 
 		  (read-from-minibuffer "Regexp? " nil 
-					;;pyregexp-minibuffer-keymap
-		  ))
+					pyregexp-minibuffer-regexp-keymap))
+	    ;;(setq pyregexp-regexp-string (format "%s%s" (pyregexp-get-regexp-modifiers-prefix) pyregexp-regexp-string))
 	    
 	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	    (setq pyregexp-replace-string 
-		  (read-from-minibuffer (format "Replace (%s)? " pyregexp-regexp-string) nil 
-		   pyregexp-minibuffer-replace-keymap))))
+	    (setq pyregexp-last-minibuffer-contents "")
+	    (setq pyregexp-replace-string
+		  (read-from-minibuffer (format "Replace (%s)? " (pyregexp-get-regexp-string)) nil 
+					pyregexp-minibuffer-replace-keymap))))
 	
-	(list pyregexp-regexp-string pyregexp-replace-string pyregexp-target-buffer-start pyregexp-target-buffer-end pyregexp-use-expression))
+	(list 
+	 pyregexp-regexp-string 
+	 pyregexp-replace-string
+	 pyregexp-target-buffer-start
+	 pyregexp-target-buffer-end
+	 pyregexp-regexp-modifiers
+	 pyregexp-use-expression))
     (progn ;; execute on finish
       (setq pyregexp-in-minibuffer nil)
       (pyregexp-delete-overlay-displays)
       (pyregexp-delete-overlays))))
 
-(defun pyregexp-replace (regexp replace start end &optional use-expression)
+(defun pyregexp-replace (regexp replace start end &optional modifiers use-expression)
   "Regexp-replace with interactive feedback, using Python regular expressions. 
 When used interactively with prefix arg, the replacement string is a Python expression. The Python expression has access to the following variables:
 - i: the index of the match
@@ -513,6 +622,7 @@ replace: \"\\n{}. {}\".format(i+1, \\0)
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-target-buffer-start start)
 	(setq pyregexp-target-buffer-end end)
+	(setq pyregexp-modifiers (if modifiers modifiers '()))
 	(setq pyregexp-use-expression use-expression)
 	(setq pyregexp-regexp-string regexp)
 	(setq pyregexp-replace-string replace)
