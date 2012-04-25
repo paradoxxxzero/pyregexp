@@ -2,7 +2,7 @@
 
 ;; Copyright (C) 2012 Marko Bencun
 
-;; Author : benma <mbencun@gmail.com>
+;; Author : Marko Bencun <mbencun@gmail.com>
 ;; URL : https://github.com/benma/pyregexp/
 ;; Version : 0.1
 ;; Keywords : regexp, replace, python
@@ -27,7 +27,7 @@
 
 ;; What's this?
 ;;
-;; It is a command for emacs, enabling you to use Python regular expressions and either a Python string or a Python expression for doing replacements.
+;; It is a command for emacs which enables you to use Python regular expressions and either a Python string or a Python expression for doing replacements.
 ;; While constructing the regexp in the minibuffer, you get live visual feedback for the matches, including group matches.
 ;; While constructing the replacement in the minibuffer, you get live visual feedback for the replacements.
 
@@ -42,7 +42,7 @@
 ;;
 ;; So a thanks to Detlev Zundel for his re-builder.
 
-;;; Usage
+;;; Installation
 ;;
 ;; Add the following code to your init file. Of course you can select
 ;; your own key.
@@ -51,7 +51,8 @@
 ;; (require 'pyregexp)
 ;; (define-key global-map (kbd "C-c r") 'pyregexp-replace)
 ;; ----------------------------------------------------------
-;; to customize, use: M-x customize-group [RET] pyregexp.
+;; To customize, use: M-x customize-group [RET] pyregexp.
+;; You can specify how to invoke the Python interpreter by modifying the pyregexp-command-prefix variable. The default is "python ...".
 ;;
 ;; Execute C-h f "pyregexp-replace" to read more and see examples.
 
