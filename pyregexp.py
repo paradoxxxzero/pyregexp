@@ -21,6 +21,16 @@
 # along with pyregexp.  If not, see <http://www.gnu.org/licenses/>.
 
 import sys, re
+
+
+# True if we are running on Python 3.
+PY3 = sys.version_info[0] == 3
+
+if not PY3:
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
+    sys.stdin = codecs.getreader('utf-8')(sys.stdin)
+
 argv = sys.argv
 
 # not using argparse because it is not in the stdlib of python2.7/3.1.
@@ -36,14 +46,12 @@ def parse_arg(arg, required=True):
         try:
             return sys.argv[sys.argv.index(arg)+1]
         except ValueError:
-            raise Exception("Argument missing: {0}".format(arg))
+            raise Exception("Argument missing: %s" % arg)
     if arg in STR_ARGS:
         return lookahead()
     if arg in INT_ARGS:
         return int(lookahead())
-    raise Exception("Unrecognized argument: {0}".format(arg))
-# True if we are running on Python 3.
-PY3 = sys.version_info[0] == 3
+    raise Exception("Unrecognized argument: %s" % arg)
 
 def escape(s):
     return s.replace('\\','\\\\').replace('\n', '\\n')
@@ -57,6 +65,10 @@ if argv[1] == 'matches':
 
     regexp = parse_arg('--regexp')
     region = sys.stdin.read()
+
+    if not PY3:
+        regexp = regexp.decode('utf-8')
+
     feedback_limit = parse_arg('--feedback-limit', required=False)
     try:
         matches = list(re.finditer(regexp, region))
@@ -68,7 +80,7 @@ if argv[1] == 'matches':
                 sys.stdout.write(' '.join("%s %s" % span for span in match.regs))
                 sys.stdout.write('\n')
         if matches:
-            message("{0} occurences".format(len(matches)))
+            message("%d occurences" % len(matches))
         else:
             message("no match")
     except re.error as e:
@@ -77,15 +89,18 @@ if argv[1] == 'matches':
 elif argv[1] == "replace":
     regexp = parse_arg('--regexp')
     replace = parse_arg('--replace')
-    if not PY3:
-        replace = replace.decode('utf-8')
     do_eval = parse_arg('--eval')
     feedback = parse_arg('--feedback')
     feedback_limit = parse_arg('--feedback-limit', required=False)
+    region = sys.stdin.read()
+
+    if not PY3:
+        regexp = regexp.decode('utf-8')
+        replace = replace.decode('utf-8')
+
     if do_eval:
         # use \1, \2 instead of m.group(0), m.group(1), ...
         replace = re.sub(r'\\(\d+)', r'm.group(\1)', replace)
-    region = sys.stdin.read()
     match_counter = [0]
 
     def eval_replace(match):
@@ -95,10 +110,9 @@ elif argv[1] == "replace":
             'm': match,
             'i': match_counter[0],
             }
-        if PY3:
-            replacement = str(eval(replace, _globals, _locals))
-        else:
-            replacement = unicode(eval(replace, _globals, _locals)).encode('utf-8')
+        
+        replacement = eval(replace, _globals, _locals)
+                
         match_counter[0] += 1
         return replacement
 
@@ -110,14 +124,15 @@ elif argv[1] == "replace":
             if feedback and feedback_limit is not None and i >= feedback_limit:
                 break
             if not feedback or match.start() != match.end():
-                sys.stdout.write("%s %s %%s" % match.span() % escape(re.sub(regexp, eval_replace if do_eval else replace, match.group(0), count=1)))
+                sys.stdout.write("%s %s " % match.span())
+                sys.stdout.write(re.sub(regexp, eval_replace if do_eval else replace, match.group(0), count=1,flags=re.UNICODE))
                 sys.stdout.write('\n')
         if feedback:
             if matches:
-                message("{0} occurences".format(len(matches)))
+                message("%d occurences" % len(matches))
             else:
                 message("no match")
         else:
-            message("replaced {0} occurences".format(len(matches)))
+            message("replaced %d occurences" % len(matches))
     except Exception as e:
         message("Invalid: %s" % e)

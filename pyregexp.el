@@ -395,7 +395,6 @@ See also: http://docs.python.org/library/re.html#re.I"
 (add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
 ;;; shell command / parsing functions
-
 (defun pyregexp-command (command)
   (let ((stdout-buffer (generate-new-buffer (generate-new-buffer-name " *pyregex stdout*")))
 	(output)
@@ -409,8 +408,7 @@ See also: http://docs.python.org/library/re.html#re.I"
 		       stdout-buffer
 		       nil ;; don't redisplay buffer
 		       shell-command-switch
-		       command
-		       )))
+		       command)))
     (with-current-buffer stdout-buffer
       (setq output (buffer-string))
       (kill-buffer))
