@@ -126,26 +126,26 @@
 
 (defcustom pyregexp-command-prefix (format "python %s" pyregexp-filename)
   "External script to compute the replacements."
+  :type 'string
   :group 'pyregexp)
 
-(defcustom pyregexp-minibuffer-help-regexp
-  "C-c ?: help, C-c i: toggle case, C-c m: toggle multiline match of ^ and $, C-c s: toggle dot matches newline, C-c a: toggle show all"
-  "Help string shown in minibuffer when entering regexp."
-  :group 'pyregexp)
-
-(defcustom pyregexp-minibuffer-help-replace
-  "C-c ?: help, C-c C-c: toggle expression, C-c m: show matches/groups, C-c a: toggle show all"
-  "Help string shown in minibuffer when entering replacement."
+(defcustom pyregexp-auto-show-help t
+  "Show help message automatically when the minibuffer is entered."
+  :type 'boolean
   :group 'pyregexp)
 
 (defcustom pyregexp-default-feedback-limit 50
   "Limit number of matches shown in visual feedback. 
 If nil, don't limit the number of matches shown in visual feedback."
+  :type 'integer
   :group 'pyregexp)
+
 (defcustom pyregexp-default-regexp-modifiers '(M)
   "Modifiers that are applied by default. All modifiers are: '(I M S U).
 See also: http://docs.python.org/library/re.html#re.I"
-  :group 'pyregexp)
+  ;;:type '(choice (const 10) (const 5))
+  :group 'pyregexp
+  )
 
 ;;; private variables
 
@@ -324,11 +324,9 @@ See also: http://docs.python.org/library/re.html#re.I"
 
 (defun pyregexp-minibuffer-help ()
   (cond ((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	 (when pyregexp-minibuffer-help-regexp
-	   (pyregexp-minibuffer-message pyregexp-minibuffer-help-regexp)))
+	 (pyregexp-minibuffer-message "C-c ?: help, C-c i: toggle case, C-c m: toggle multiline match of ^ and $, C-c s: toggle dot matches newline, C-c a: toggle show all"))
 	((equal pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	 (when pyregexp-minibuffer-help-replace
-	   (pyregexp-minibuffer-message pyregexp-minibuffer-help-replace)))))
+	 (pyregexp-minibuffer-message "C-c ?: help, C-c C-c: toggle expression, C-c m: show matches/groups, C-c a: toggle show all"))))
 
 ;;; overlay functions
 
@@ -391,7 +389,7 @@ See also: http://docs.python.org/library/re.html#re.I"
   (when pyregexp-in-minibuffer
     (progn
       (pyregexp-update-minibuffer-prompt)
-      (pyregexp-minibuffer-help))))
+      (when pyregexp-auto-show-help (pyregexp-minibuffer-help)))))
 (add-hook 'minibuffer-setup-hook 'pyregexp-minibuffer-setup)
 
 ;;; shell command / parsing functions
