@@ -571,46 +571,46 @@ and the message line."
   "Get interactive args for the pyregexp-replace function."
   (unwind-protect 
       (progn
-	(when pyregexp-in-minibuffer (error "pyregexp already in use."))
-	(setq pyregexp-target-buffer (current-buffer))
-	(setq pyregexp-use-expression current-prefix-arg)
-	(setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
-					       (region-beginning)
-					     (point)))
-	(setq pyregexp-target-buffer-end (if (and transient-mark-mode mark-active) 
-					     (region-end)
-					   (point-max)))
+	(let ((buffer-read-only t)) ;; make target buffer
+	  (when pyregexp-in-minibuffer (error "pyregexp already in use."))
+	  (setq pyregexp-target-buffer (current-buffer))
+	  (setq pyregexp-use-expression current-prefix-arg)
+	  (setq pyregexp-target-buffer-start (if (and transient-mark-mode mark-active) 
+						 (region-beginning)
+					       (point)))
+	  (setq pyregexp-target-buffer-end (if (and transient-mark-mode mark-active) 
+					       (region-end)
+					     (point-max)))
 
-	(setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
-	(setq pyregexp-feedback-limit-reached nil)
-	(setq pyregexp-regexp-modifiers pyregexp-default-regexp-modifiers)
+	  (setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
+	  (setq pyregexp-feedback-limit-reached nil)
+	  (setq pyregexp-regexp-modifiers pyregexp-default-regexp-modifiers)
 
-	(save-excursion
-	  ;; deactivate mark so that we can see our faces instead of region-face.
-	  (deactivate-mark)
-	  (progn 
-	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
-	    (setq pyregexp-last-minibuffer-contents "")
-	    (setq pyregexp-regexp-string 
-		  (read-from-minibuffer 
-		   " " ;; prompt will be  set in pyregexp-minibuffer-setup
-		   nil pyregexp-minibuffer-regexp-keymap))
-	    ;;(setq pyregexp-regexp-string (format "%s%s" (pyregexp-get-regexp-modifiers-prefix) pyregexp-regexp-string))
-	    
-	    (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
-	    (setq pyregexp-last-minibuffer-contents "")
-	    (setq pyregexp-replace-string
-		  (read-from-minibuffer 
-		   " " ;; prompt will be  set in pyregexp-minibuffer-setup 
-		   nil pyregexp-minibuffer-replace-keymap))))
-	
-	(list 
-	 pyregexp-regexp-string 
-	 pyregexp-replace-string
-	 pyregexp-target-buffer-start
-	 pyregexp-target-buffer-end
-	 pyregexp-regexp-modifiers
-	 pyregexp-use-expression))
+	  (save-excursion
+	    ;; deactivate mark so that we can see our faces instead of region-face.
+	    (deactivate-mark)
+	    (progn 
+	      (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-regexp)
+	      (setq pyregexp-last-minibuffer-contents "")
+	      (setq pyregexp-regexp-string 
+		    (read-from-minibuffer 
+		     " " ;; prompt will be  set in pyregexp-minibuffer-setup
+		     nil pyregexp-minibuffer-regexp-keymap))
+	      ;;(setq pyregexp-regexp-string (format "%s%s" (pyregexp-get-regexp-modifiers-prefix) pyregexp-regexp-string))
+	      
+	      (setq pyregexp-in-minibuffer 'pyregexp-minibuffer-replace)
+	      (setq pyregexp-last-minibuffer-contents "")
+	      (setq pyregexp-replace-string
+		    (read-from-minibuffer 
+		     " " ;; prompt will be  set in pyregexp-minibuffer-setup 
+		     nil pyregexp-minibuffer-replace-keymap))))
+	  
+	  (list pyregexp-regexp-string 
+		pyregexp-replace-string
+		pyregexp-target-buffer-start
+		pyregexp-target-buffer-end
+		pyregexp-regexp-modifiers
+		pyregexp-use-expression)))
     (progn ;; execute on finish
       (setq pyregexp-in-minibuffer nil)
       (pyregexp-delete-overlay-displays)
