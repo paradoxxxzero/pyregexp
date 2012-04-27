@@ -125,7 +125,7 @@ elif argv[1] == "replace":
                 break
             if not feedback or match.start() != match.end():
                 sys.stdout.write("%s %s " % match.span())
-                sys.stdout.write(re.sub(regexp, eval_replace if do_eval else replace, match.group(0), count=1,flags=re.UNICODE))
+                sys.stdout.write(re.sub(regexp, eval_replace if do_eval else replace, match.group(0), count=1))
                 sys.stdout.write('\n')
         if feedback:
             if matches:
