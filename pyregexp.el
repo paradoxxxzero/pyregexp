@@ -577,7 +577,6 @@ and the message line."
 					     (point-max)))
 
 	  (setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
-	  (setq pyregexp-feedback-limit-reached nil)
 	  (setq pyregexp-regexp-modifiers (copy-list pyregexp-default-regexp-modifiers))
 
 	  (save-excursion
@@ -637,7 +636,7 @@ replace: \"\\n{}. {}\".format(i+1, \\0)
 	(setq pyregexp-target-buffer (current-buffer))
 	(setq pyregexp-target-buffer-start start)
 	(setq pyregexp-target-buffer-end end)
-	(setq pyregexp-modifiers (if modifiers modifiers '()))
+	(setq pyregexp-regexp-modifiers (if modifiers modifiers (copy-list pyregexp-default-regexp-modifiers)))
 	(setq pyregexp-use-expression use-expression)
 	(setq pyregexp-regexp-string regexp)
 	(setq pyregexp-replace-string replace)
