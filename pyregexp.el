@@ -140,10 +140,17 @@ If nil, don't limit the number of matches shown in visual feedback."
   :type 'integer
   :group 'pyregexp)
 
-(defcustom pyregexp-default-regexp-modifiers '(M)
+(defcustom pyregexp-default-regexp-modifiers '(:I nil :M t :S nil :U nil)
   "Modifiers that are applied by default. All modifiers are: '(I M S U).
 See also: http://docs.python.org/library/re.html#re.I"
   ;;:type '(choice (const 10) (const 5))
+
+  :type '(plist :key-type (choice
+			   (const :tag "Enable the IGNORECASE modifier by default" :I) 
+			   (const :tag "Enable the MULTILINE modifier by default (^ and $ match on every line)" :M)
+			   (const :tag "Enable the DOTALL modifier by default (dot matches newline)" :S)
+			   (const :tag "Enable the UNICODE modifier by default" :U))
+		:value-type boolean)
   :group 'pyregexp
   )
 
@@ -218,10 +225,10 @@ See also: http://docs.python.org/library/re.html#re.I"
     ;; C-i is also <tab>. http://stackoverflow.com/questions/1792326/how-do-i-bind-a-command-to-c-i-without-changing-tab
     (setq map (delq '(kp-tab . [9]) map))
     ;;(keyboard-translate ?\C-i ?\H-i)
-    (define-key map (kbd "C-c i") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'I)))
-    (define-key map (kbd "C-c m") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'M)))
-    (define-key map (kbd "C-c s") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'S)))
-    (define-key map (kbd "C-c u") (lambda () (interactive) (pyregexp-toggle-regexp-modifier 'U)))
+    (define-key map (kbd "C-c i") (lambda () (interactive) (pyregexp-toggle-regexp-modifier :I)))
+    (define-key map (kbd "C-c m") (lambda () (interactive) (pyregexp-toggle-regexp-modifier :M)))
+    (define-key map (kbd "C-c s") (lambda () (interactive) (pyregexp-toggle-regexp-modifier :S)))
+    (define-key map (kbd "C-c u") (lambda () (interactive) (pyregexp-toggle-regexp-modifier :U)))
 
     (define-key map (kbd "C-c a") 'pyregexp-toggle-limit)
     map)
@@ -263,10 +270,9 @@ See also: http://docs.python.org/library/re.html#re.I"
 	 (pyregexp-do-replace-feedback))))
 
 (defun pyregexp-toggle-regexp-modifier(modifier)
-  (setq pyregexp-regexp-modifiers 
-	(if (memq modifier pyregexp-regexp-modifiers)
-	    (delq modifier pyregexp-regexp-modifiers)
-	  (cons modifier pyregexp-regexp-modifiers)))
+  "modifier should be one of :I, :M, :S, :U."
+  (plist-put pyregexp-regexp-modifiers modifier 
+	     (not (plist-get pyregexp-regexp-modifiers modifier)))
   (pyregexp-update-minibuffer-prompt)
   (pyregexp-regexp-feedback))
 
@@ -278,25 +284,17 @@ See also: http://docs.python.org/library/re.html#re.I"
 
 (defun pyregexp-get-regexp-modifiers-prefix ()
   "Construct (?imsu) prefix based on selected modifiers."
-  (let (modifiers-sorted)
-    (mapc (lambda (m)
-	    (when (memq m pyregexp-regexp-modifiers)
-	      (setq modifiers-sorted (cons m modifiers-sorted)))
-	    ) '(I M S U) ;; sort according to this order
-	  )
-    (let ((s (mapconcat 
-	      'identity 
-	      (delq nil 
-		    (mapcar (lambda (m)
-			      (cond ((equal m 'I) "i")
-				    ((equal m 'M) "m")
-				    ((equal m 'S) "s")
-				    ((equal m 'U) "u")
-				    (t nil)))
-			    (nreverse modifiers-sorted)) )
-	      "")))
-      (if (string= "" s) "" (format "(?%s)" s)))))
-
+  (let ((s (mapconcat 'identity 
+		      (delq nil (mapcar (lambda (m)
+					  (when (plist-get pyregexp-regexp-modifiers m)
+					    (cond ((equal m :I) "i")
+						  ((equal m :M) "m")
+						  ((equal m :S) "s")
+						  ((equal m :U) "u")
+						  (t nil))))
+					(list :I :M :S :U)))
+		      "")))
+    (if (string= "" s) "" (format "(?%s)" s))))
 
 ;;; minibuffer functions
 
@@ -580,7 +578,7 @@ and the message line."
 
 	  (setq pyregexp-feedback-limit pyregexp-default-feedback-limit)
 	  (setq pyregexp-feedback-limit-reached nil)
-	  (setq pyregexp-regexp-modifiers pyregexp-default-regexp-modifiers)
+	  (setq pyregexp-regexp-modifiers (copy-list pyregexp-default-regexp-modifiers))
 
 	  (save-excursion
 	    ;; deactivate mark so that we can see our faces instead of region-face.
