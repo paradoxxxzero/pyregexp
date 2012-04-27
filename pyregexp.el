@@ -44,10 +44,12 @@
 
 ;;; Installation
 ;;
+;; Put pyregexp.el and pyregexp.py into the same directory.
 ;; Add the following code to your init file. Of course you can select
 ;; your own key.
 ;; ----------------------------------------------------------
-;; (add-to-list 'load-path "which-folder-pyregexp-file-in/")
+;; (require 'cl)
+;; (add-to-list 'load-path "folder-in-which-pyregexp-files-are-in/")
 ;; (require 'pyregexp)
 ;; (define-key global-map (kbd "C-c r") 'pyregexp-replace)
 ;; ----------------------------------------------------------
