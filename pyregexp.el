@@ -1,4 +1,4 @@
-;;; pyregexp.el --- a Python regexp/replace command for emacs with interactive feedback
+;;; pyregexp.el --- A Python regexp/replace command for Emacs with interactive visual feedback
 
 ;; Copyright (C) 2012 Marko Bencun
 
