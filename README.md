@@ -20,7 +20,7 @@ You need a Python interpreter.
 Add the following code to your init file. Of course you can select your own key.
 
 ```Lisp
-(add-to-list 'load-path "which-folder-pyregexp-file-in/") ;; if the files are not already in the load path
+(add-to-list 'load-path "folder-in-which-pyregexp-files-are-in/") ;; if the files are not already in the load path
 (require 'pyregexp)
 (define-key global-map (kbd "C-c r") 'pyregexp-replace)
 ```
