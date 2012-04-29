@@ -431,6 +431,7 @@ Escaped newlines are only unescaped if newline is not nil."
   (when newline
     (setq s (replace-regexp-in-string (regexp-quote "\\n") (regexp-quote "\n") s)))
   (replace-regexp-in-string (regexp-quote "\\\\") (regexp-quote "\\") s))
+
 (defun pyregexp-parse-matches (s callback)
   "Parse string s with positions of matches and groups as returned by external script. For each position, callback is called with arguments (i j begin end),
 i being the match and j the group index and begin/end being the span of the match.
