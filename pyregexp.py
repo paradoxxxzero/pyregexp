@@ -111,7 +111,7 @@ elif argv[1] == "replace":
             'i': match_counter[0],
             }
         
-        replacement = eval(replace, _globals, _locals)
+        replacement = (str if PY3 else unicode)(eval(replace, _globals, _locals)
                 
         match_counter[0] += 1
         return replacement
